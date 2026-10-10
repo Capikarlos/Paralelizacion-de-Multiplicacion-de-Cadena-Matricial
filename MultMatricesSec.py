@@ -46,13 +46,17 @@ def multiplicacion_paralela(a, b):
 
 # Main (lo separo en un comentario de las funciones pq sino me confundo xd)
 if __name__ == "__main__":
-    a = np.array([[3, 4, 5],
-                  [2, 4, 2],
-                  [1, 5, 5]])
+    # Dimensiones de las matrices
+    n = 10  # Filas A
+    m = 8  # Columnas/Filas A/B
+    l = 10  # Columnas B
 
-    b = np.array([[4, 2, 4],
-                  [0, 1, 5],
-                  [3, 6, 8]])
+    # Crear las matrices de forma aleatoria
+    a = np.random.randint(0, 9, size=(n, m))
+    b = np.random.randint(0, 9, size=(m, l))
+
+    print(f"Matriz A ({n}x{m}):\n{a}\n")
+    print(f"Matriz B ({m}x{l}):\n{b}\n")
 
     # Revisar que las matrices si sean multiplicables
     if (len(a[0]) != len(b)):

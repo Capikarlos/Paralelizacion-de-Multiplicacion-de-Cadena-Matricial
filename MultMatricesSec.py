@@ -52,8 +52,11 @@ if __name__ == "__main__":
     l = 10  # Columnas B
 
     # Crear las matrices de forma aleatoria
-    a = np.random.randint(0, 9, size=(n, m))
-    b = np.random.randint(0, 9, size=(m, l))
+    a_np = np.random.randint(0, 9, size=(n, m))
+    b_np= np.random.randint(0, 9, size=(m, l))
+
+    a = a_np.tolist()
+    b = b_np.tolist()
 
     print(f"Matriz A ({n}x{m}):\n{a}\n")
     print(f"Matriz B ({m}x{l}):\n{b}\n")
@@ -67,9 +70,9 @@ if __name__ == "__main__":
     print("Resultado secuencial:")
     print(c)
 
-    print("\nResultado Numpy")
-    ab = a@b
-    print(ab)
+    # print("\nResultado Numpy")
+    # ab = a@b
+    # print(ab)
 
 
     c_mp = multiplicacion_paralela(a,b)

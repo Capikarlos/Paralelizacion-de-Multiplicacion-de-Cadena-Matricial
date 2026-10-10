@@ -41,7 +41,10 @@ def multiplicacion_paralela(a, b):
 
     return c
 
-
+# Pa' q no imprima feo
+def imprimir_matriz(matriz):
+    for fila in matriz:
+        print(fila)
 
 
 # Main (lo separo en un comentario de las funciones pq sino me confundo xd)
@@ -58,8 +61,10 @@ if __name__ == "__main__":
     a = a_np.tolist()
     b = b_np.tolist()
 
-    print(f"Matriz A ({n}x{m}):\n{a}\n")
-    print(f"Matriz B ({m}x{l}):\n{b}\n")
+    print(f"Matriz A ({n}x{m}):")
+    imprimir_matriz(a)
+    print(f"Matriz B ({m}x{l}):")
+    imprimir_matriz(b)
 
     # Revisar que las matrices si sean multiplicables
     if (len(a[0]) != len(b)):
@@ -68,7 +73,7 @@ if __name__ == "__main__":
 
     c = multiplicacion_secuencial(a, b)
     print("Resultado secuencial:")
-    print(c)
+    imprimir_matriz(c)
 
     # print("\nResultado Numpy")
     # ab = a@b
@@ -77,4 +82,4 @@ if __name__ == "__main__":
 
     c_mp = multiplicacion_paralela(a,b)
     print("\nResultado mp")
-    print(c_mp)
+    imprimir_matriz(c_mp)

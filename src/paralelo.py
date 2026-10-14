@@ -36,3 +36,35 @@ def calcular_bloque_resultado(args):
                     
     # Retornamos el índice inicial para poder ordenar los pedazos después
     return (i_start, resultado_parcial)
+
+
+def multiplicacion_paralela_bloques(A, B, num_procesos=None, block_size=32):
+    """
+    Función principal que divide el trabajo y lanza el Pool de procesos.
+    """
+    if num_procesos is None:
+        num_procesos = mp.cpu_count()
+        
+    N = len(A)
+    
+    # Dividir las filas equitativamente entre el número de núcleos
+    filas_por_proceso = math.ceil(N / num_procesos)
+    tareas = []
+    
+    for i in range(0, N, filas_por_proceso):
+        i_end = min(i + filas_por_proceso, N)
+        tareas.append((i, i_end, block_size))
+        
+    # Lanzar multiprocesamiento
+    with mp.Pool(processes=num_procesos, initializer=iniciar_worker, initargs=(A, B)) as pool:
+        resultados = pool.map(calcular_bloque_resultado, tareas)
+        
+    # El Pool puede devolver los resultados en desorden, los ordenamoos por el i_start
+    resultados.sort(key=lambda x: x[0])
+    
+    # Ensamblar la matriz final C uniendo las filas calculadas
+    C = []
+    for _, bloque in resultados:
+        C.extend(bloque)
+        
+    return C

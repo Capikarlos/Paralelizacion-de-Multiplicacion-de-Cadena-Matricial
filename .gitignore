@@ -1,3 +1,14 @@
 
 data/YearPredictionMSD.txtgit rm --cached data/YearPredictionMSD.txt
 data/YearPredictionMSD.txt
+
+#Archivos binarios generados por el procesamiento
+data/*.npy
+
+#Archivos generados por Python
+__pycache__/
+*.py[cod]
+
+#Entornos virtuales
+.venv/
+venv/

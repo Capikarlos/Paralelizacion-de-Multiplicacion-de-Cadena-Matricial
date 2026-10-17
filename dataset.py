@@ -2,14 +2,15 @@ import csv
 from pathlib import Path
 import numpy as np
 
-#Directorio donde se encuentra este archivo
+# Directorios y rutas del dataset
 BASE_DIR = Path(__file__).resolve().parent
-
-#Directorio que contiene el dataset
 DATA_DIR = BASE_DIR / "data"
 
-#Ruta del archivo original
+# Archivo original
 DATASET_PATH = DATA_DIR / "YearPredictionMSD.txt"
+
+# Caché binaria
+CACHE_PATH = DATA_DIR / "YearPredictionMSD.npy"
 
 
 def validar_archivo_dataset():
@@ -92,43 +93,66 @@ def inspeccionar_dataset():
 
     return total_filas, columnas_detectadas
 
-
 def cargar_dataset(limite=None):
     #Carga los datos numeros del aarchivo, 
     #retorna x q es la matriz de  variables predictoras y y q es el vector con los años de lanzamiento
 
-    ruta = validar_archivo_dataset()
+    if limite is not None:
+        if (isinstance(limite, bool) or not isinstance(limite, (int, np.integer)) or limite <= 0):
+            raise ValueError("El límite debe ser un entero positivo o None.")
 
-    #Verificar que el limite sea valido
-    if limite is not None and limite <= 0:
-        raise ValueError("El limite debe ser un entero positivo o None.")
-    print("\nCargando datos del dataset...")
+    #Obtener los datos desde la cache
+    datos = datos_cacheados()
 
-    #Leer el archivo como una matriz NumPy
-    datos = np.loadtxt(
-        ruta,
-        delimiter=",",
-        dtype=np.float32,
-        max_rows=limite,
-        ndmin=2
-    )
+    # Determinar cuantas instancias se utilizaran
+    cantidad = len(datos) if limite is None else min(limite, len(datos))
 
-    if datos.size == 0:
-        raise ValueError("No se encontraron datos para cargar.")
-
-    #La primera columna contiene el año que queremos predecir
-    y = datos[:, 0]
-    #Las columnas restantes contienen las variables predictoras
-    X = datos[:, 1:]
+    #Separar el objetivo y las variables predictoras
+    y = datos[:cantidad, 0]
+    X = datos[:cantidad, 1:]
 
     print("\nDataset cargado:")
-    print(f"Instancias cargadas: {X.shape[0]}")
+    print(f"Instancias: {X.shape[0]}")
     print(f"Variables predictoras: {X.shape[1]}")
     print(f"Dimensiones de X: {X.shape}")
     print(f"Dimensiones de y: {y.shape}")
     print(f"Tipo de datos: {X.dtype}")
 
     return X, y
+
+def datos_cacheados():
+    #Carga datos desde un cache binario, si no existe cache procesa el archivo y crea nueva cache
+
+    ruta = validar_archivo_dataset()
+
+    #Comprobar si es necesario crear o actualizar la caché
+    actu_cache = (not CACHE_PATH.exists() or CACHE_PATH.stat().st_mtime < ruta.stat().st_mtime)
+
+    if actu_cache:
+        print("\nProcesando el archivo de texto, normalmente la primera vez tarda un poquillo")
+
+        datos = np.loadtxt(ruta, delimiter=",", dtype=np.float32, ndmin=2)
+
+        #Verificar la estructura esperada
+        if datos.shape[1] != 91:
+            raise ValueError(f"Se esperaban 91 columnas, pero se encontraron "f"{datos.shape[1]}.")
+
+        #Guardar los datos procesados
+        np.save(CACHE_PATH, datos)
+        print(f"Caché creada: {CACHE_PATH}")
+        print(f"Dimensiones guardadas: {datos.shape}")
+        del datos
+
+    else:
+        print("\nUtilizando la caché binaria existente.")
+
+    # Abrir la cache mediante memoria mapeada para evitar cargarla completamente en RAM
+    datos = np.load(CACHE_PATH, mmap_mode="r")
+
+    if datos.ndim != 2 or datos.shape[1] != 91:
+        raise ValueError("La caché no tiene las dimensiones esperadas. " "Elimina el archivo .npy y vuelve a ejecutar.")
+    return datos
+
 
 if __name__ == "__main__":
     #Primera prueba con una muestra de 1000 instancias

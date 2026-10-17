@@ -1,5 +1,6 @@
 import csv
 from pathlib import Path
+import numpy as np
 
 #Directorio donde se encuentra este archivo
 BASE_DIR = Path(__file__).resolve().parent
@@ -92,5 +93,50 @@ def inspeccionar_dataset():
     return total_filas, columnas_detectadas
 
 
+def cargar_dataset(limite=None):
+    #Carga los datos numeros del aarchivo, 
+    #retorna x q es la matriz de  variables predictoras y y q es el vector con los años de lanzamiento
+
+    ruta = validar_archivo_dataset()
+
+    #Verificar que el limite sea valido
+    if limite is not None and limite <= 0:
+        raise ValueError("El limite debe ser un entero positivo o None.")
+    print("\nCargando datos del dataset...")
+
+    #Leer el archivo como una matriz NumPy
+    datos = np.loadtxt(
+        ruta,
+        delimiter=",",
+        dtype=np.float32,
+        max_rows=limite,
+        ndmin=2
+    )
+
+    if datos.size == 0:
+        raise ValueError("No se encontraron datos para cargar.")
+
+    #La primera columna contiene el año que queremos predecir
+    y = datos[:, 0]
+    #Las columnas restantes contienen las variables predictoras
+    X = datos[:, 1:]
+
+    print("\nDataset cargado:")
+    print(f"Instancias cargadas: {X.shape[0]}")
+    print(f"Variables predictoras: {X.shape[1]}")
+    print(f"Dimensiones de X: {X.shape}")
+    print(f"Dimensiones de y: {y.shape}")
+    print(f"Tipo de datos: {X.dtype}")
+
+    return X, y
+
 if __name__ == "__main__":
-    inspeccionar_dataset()
+    #Primera prueba con una muestra de 1000 instancias
+    X, y = cargar_dataset(limite=1000)
+
+    #Mostrar algunos valores para comprobar la carga
+    print("\nPrimeras 7 instancias de X:")
+    print(X[:7, :7])
+
+    print("\nPrimeros 10 años:")
+    print(y[:10])

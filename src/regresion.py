@@ -61,3 +61,21 @@ def entrenar_regresion_logistica(X, y, epochs=5, lr=0.001, paralelo=False, num_p
             pesos[i][0] -= lr * gradiente_promedio
 
     return pesos
+
+
+def predecir(X, pesos):
+    #Predice la clase de cada instancia usando los pesos obtenidos y retorna las predicciones ocn 0 o 1
+
+    #Calcular X * pesos
+    z = multiplicacion_secuencial(X, pesos)
+
+    predicciones = []
+
+    #Convertir las probabilidades en clases
+    for val in z:
+        probabilidad = sigmoide(val[0])
+        clase = 1 if probabilidad >= 0.5 else 0
+
+        predicciones.append([clase])
+
+    return predicciones

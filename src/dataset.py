@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 
 # Directorios y rutas del dataset
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent  #Se subio un nivel en la carpeta
 DATA_DIR = BASE_DIR / "data"
 
 # Archivo original

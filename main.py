@@ -6,8 +6,8 @@ from src.metricas import imprimir_reporte_tiempos, imprimir_reporte_modelo
 def principal():
     print("Iniciando pipeline de Regresión Logística...")
     
-    # Se extraen las características y el año a predecir
-    X_np, y_np = cargar_dataset(limite=500)
+    # Se extraen las características y el año a predecir, se removio el limite pues se quiere un analisis completo
+    X_np, y_np = cargar_dataset(limite=None)
     
     # Convertir NumPy arrays a listas nativas para compatibilidad con código secuencial
     X = X_np.tolist()
@@ -24,7 +24,7 @@ def principal():
     pesos_sec = entrenar_regresion_logistica(X, y, epochs=EPOCAS, lr=LR, paralelo=False)
     tiempo_sec = time.time() - inicio_sec
     
-    print("\n[ Entrenando modelo PARALELO (Tiling) ]")
+    print("\n[ Entrenando modelo PARALELO]")
     inicio_par = time.time()
     pesos_par = entrenar_regresion_logistica(X, y, epochs=EPOCAS, lr=LR, paralelo=True, num_procesos=NUCLEOS)
     tiempo_par = time.time() - inicio_par

@@ -1,3 +1,8 @@
-numpy==1.26.4
-scikit-learn==1.4.1.post1
-matplotlib==3.8.4
+numpy>=1.26.0
+pandas>=2.1.0
+scikit-learn>=1.4.0
+matplotlib>=3.8.0
+# Para ejecución multi-nodo en clúster 
+mpi4py>=3.1.5
+# en Google Colab con GPU NVIDIA:
+# cupy-cuda12x

@@ -1,166 +1,66 @@
-import csv
-from pathlib import Path
+import os
 import numpy as np
-
-# Directorios y rutas del dataset
-BASE_DIR = Path(__file__).resolve().parent.parent  #Se subio un nivel en la carpeta
-DATA_DIR = BASE_DIR / "data"
-
-# Archivo original
-DATASET_PATH = DATA_DIR / "YearPredictionMSD.txt"
-
-# Caché binaria
-CACHE_PATH = DATA_DIR / "YearPredictionMSD.npy"
+import pandas as pd
 
 
-def validar_archivo_dataset():
-    #Comprobar el archivo del dataset exista pa ver su ubicacion y tamaño
+def cargar_dataset_csv(
+    ruta_csv: str,
+    max_filas: int | None = None,
+    col_objetivo: int | str = 0,
+    tiene_encabezado: bool = False,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Carga un dataset tabular binario masivo en float32 para reducir
+    a la mitad el consumo de RAM y acelerar el ancho de banda de memoria.
+    """
+    if not os.path.exists(ruta_csv):
+        raise FileNotFoundError(f"No se encontró el archivo de datos: {ruta_csv}")
 
-    if not DATASET_PATH.is_file():
-        raise FileNotFoundError(
-            f"No se encontró el dataset en:\n{DATASET_PATH}\n"
-            "Verifica que la carpeta data esté junto a dataset.py."
-        )
+    header = 0 if tiene_encabezado else None
+    df = pd.read_csv(
+        ruta_csv,
+        header=header,
+        nrows=max_filas,
+        dtype=np.float32,
+        engine="c",
+    )
 
-    # Obtener el tamaño del archivo en MB
-    tamano_mb = DATASET_PATH.stat().st_size / (1024 ** 2)
+    # Eliminar filas con valores faltantes si existen
+    if df.isna().any().any():
+        df = df.dropna()
 
-    print("Dataset localizado correctamente.")
-    print(f"Ruta: {DATASET_PATH}")
-    print(f"Tamaño: {tamano_mb:.2f} MB")
+    if isinstance(col_objetivo, str):
+        y = df[col_objetivo].to_numpy(dtype=np.float32)
+        X = df.drop(columns=[col_objetivo]).to_numpy(dtype=np.float32)
+    else:
+        y = df.iloc[:, col_objetivo].to_numpy(dtype=np.float32)
+        X = df.drop(df.columns[col_objetivo], axis=1).to_numpy(dtype=np.float32)
 
-    return DATASET_PATH
-
-
-def inspeccionar_dataset():
-    #Recorrer el archivo para ver bien el dataset
-
-    ruta = validar_archivo_dataset()
-
-    total_filas = 0
-    columnas_detectadas = None
-    filas_incorrectas = 0
-    ejemplos_incorrectos = []
-    primeras_filas = []
-
-    #Leer el archivo registro por registro para no cargar todo el dataset en la memoria RAM y me explote aca aaaa
-    with ruta.open("r", encoding="utf-8", newline="") as archivo:
-        lector = csv.reader(archivo)
-        for numero_fila, fila in enumerate(lector, start=1):
-            #Ignorar registros vacios
-            if not fila or not any(valor.strip() for valor in fila):
-                continue
-
-            total_filas += 1
-
-            #Identificar el num de columnas de la primera fila
-            if columnas_detectadas is None:
-                columnas_detectadas = len(fila)
-
-            #Guardar solamente los primeros tres registros
-            if len(primeras_filas) < 3:
-                primeras_filas.append(fila[:5])
-
-            #YearPredictionMSD debe tener 91 columnas
-            if len(fila) != 91:
-                filas_incorrectas += 1
-
-                #Conservar como maximo cinco ejemplos
-                if len(ejemplos_incorrectos) < 5:
-                    ejemplos_incorrectos.append(
-                        (numero_fila, len(fila))
-                    )
-
-    print("\nEstructura del dataset:")
-    print(f"Total de instancias: {total_filas}")
-    print(f"Columnas en la primera fila: {columnas_detectadas}")
-    print("Columnas esperadas: 91")
-    print(f"Filas con columnas incorrectas: {filas_incorrectas}")
-
-    print("\nPrimeros registros (solo los primeros 5 valores):")
-
-    for indice, fila in enumerate(primeras_filas, start=1):
-        print(f"Registro {indice}: {fila}")
-
-    if ejemplos_incorrectos:
-        print("\nEjemplos de filas con estructura incorrecta:")
-
-        for numero_fila, columnas in ejemplos_incorrectos:
-            print(
-                f"Fila {numero_fila}: "
-                f"{columnas} columnas"
-            )
-
-    return total_filas, columnas_detectadas
-
-def cargar_dataset(limite=None):
-    #Carga los datos numeros del aarchivo, 
-    #retorna x q es la matriz de  variables predictoras y y q es el vector con los años de lanzamiento
-
-    if limite is not None:
-        if (isinstance(limite, bool) or not isinstance(limite, (int, np.integer)) or limite <= 0):
-            raise ValueError("El límite debe ser un entero positivo o None.")
-
-    #Obtener los datos desde la cache
-    datos = datos_cacheados()
-
-    # Determinar cuantas instancias se utilizaran
-    cantidad = len(datos) if limite is None else min(limite, len(datos))
-
-    #Separar el objetivo y las variables predictoras
-    y = datos[:cantidad, 0]
-    X = datos[:cantidad, 1:]
-
-    print("\nDataset cargado:")
-    print(f"Instancias: {X.shape[0]}")
-    print(f"Variables predictoras: {X.shape[1]}")
-    print(f"Dimensiones de X: {X.shape}")
-    print(f"Dimensiones de y: {y.shape}")
-    print(f"Tipo de datos: {X.dtype}")
-
+    # Asegurar arreglo contiguo en memoria (C-order) para acceso rápido por filas
+    X = np.ascontiguousarray(X, dtype=np.float32)
+    y = np.ascontiguousarray(y.reshape(-1), dtype=np.float32)
     return X, y
 
-def datos_cacheados():
-    #Carga datos desde un cache binario, si no existe cache procesa el archivo y crea nueva cache
 
-    ruta = validar_archivo_dataset()
+def generar_dataset_sintetico(
+    n_muestras: int = 1_000_000,
+    n_caracteristicas: int = 18,
+    ruido: float = 0.35,
+    semilla: int = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Genera un dataset binario masivo con relaciones lineales y cuadráticas
+    para benchmarks rápidos de Amdahl/Gustafson sin depender de archivos externos.
+    """
+    rng = np.random.default_rng(semilla)
+    X = rng.standard_normal((n_muestras, n_caracteristicas), dtype=np.float32)
 
-    #Comprobar si es necesario crear o actualizar la caché
-    actu_cache = (not CACHE_PATH.exists() or CACHE_PATH.stat().st_mtime < ruta.stat().st_mtime)
+    pesos_reales = rng.uniform(-1.5, 1.5, size=n_caracteristicas).astype(np.float32)
+    # Incluir término lineal + interacción cuadrática para simular física de SUSY/HIGGS
+    logits = X @ pesos_reales + 0.4 * (X[:, 0] ** 2 - X[:, 1] ** 2)
+    logits += rng.normal(0.0, ruido, size=n_muestras).astype(np.float32)
 
-    if actu_cache:
-        print("\nProcesando el archivo de texto, normalmente la primera vez tarda un poquillo")
+    probs = 1.0 / (1.0 + np.exp(-np.clip(logits, -30.0, 30.0)))
+    y = (probs >= 0.5).astype(np.float32)
 
-        datos = np.loadtxt(ruta, delimiter=",", dtype=np.float32, ndmin=2)
-
-        #Verificar la estructura esperada
-        if datos.shape[1] != 91:
-            raise ValueError(f"Se esperaban 91 columnas, pero se encontraron "f"{datos.shape[1]}.")
-
-        #Guardar los datos procesados
-        np.save(CACHE_PATH, datos)
-        print(f"Caché creada: {CACHE_PATH}")
-        print(f"Dimensiones guardadas: {datos.shape}")
-        del datos
-
-    else:
-        print("\nUtilizando la caché binaria existente.")
-
-    # Abrir la cache mediante memoria mapeada para evitar cargarla completamente en RAM
-    datos = np.load(CACHE_PATH, mmap_mode="r")
-
-    if datos.ndim != 2 or datos.shape[1] != 91:
-        raise ValueError("La caché no tiene las dimensiones esperadas. " "Elimina el archivo .npy y vuelve a ejecutar.")
-    return datos
-
-
-if __name__ == "__main__":
-    #Primera prueba con una muestra de 1000 instancias
-    X, y = cargar_dataset(limite=1000)
-
-    #Mostrar algunos valores para comprobar la carga
-    print("\nPrimeras 7 instancias de X:")
-    print(X[:7, :7])
-
-    print("\nPrimeros 10 años:")
-    print(y[:10])
+    return np.ascontiguousarray(X), np.ascontiguousarray(y)

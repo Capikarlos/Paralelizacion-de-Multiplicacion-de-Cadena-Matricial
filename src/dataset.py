@@ -64,3 +64,59 @@ def generar_dataset_sintetico(
     y = (probs >= 0.5).astype(np.float32)
 
     return np.ascontiguousarray(X), np.ascontiguousarray(y)
+
+
+def dividir_train_test_estratificado(
+    X: np.ndarray,
+    y: np.ndarray,
+    test_size: float = 0.2,
+    semilla: int = 42,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Divide los datos en entrenamiento y prueba conservando exactamente
+    la proporción original de clases 0 y 1 (estratificado).
+    """
+    rng = np.random.default_rng(semilla)
+    idx_0 = np.flatnonzero(y == 0)
+    idx_1 = np.flatnonzero(y == 1)
+
+    rng.shuffle(idx_0)
+    rng.shuffle(idx_1)
+
+    corte_0 = int(len(idx_0) * (1.0 - test_size))
+    corte_1 = int(len(idx_1) * (1.0 - test_size))
+
+    idx_train = np.concatenate([idx_0[:corte_0], idx_1[:corte_1]])
+    idx_test = np.concatenate([idx_0[corte_0:], idx_1[corte_1:]])
+
+    rng.shuffle(idx_train)
+    rng.shuffle(idx_test)
+
+    return (
+        np.ascontiguousarray(X[idx_train]),
+        np.ascontiguousarray(X[idx_test]),
+        np.ascontiguousarray(y[idx_train]),
+        np.ascontiguousarray(y[idx_test]),
+    )
+
+
+def normalizar_zscore(
+    X_train: np.ndarray,
+    X_test: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray | None, np.ndarray, np.ndarray]:
+    """
+    Aplica estandarización Z-Score: (X - media) / desv_est.
+    Calcula media y desviación estándar en float64 únicamente sobre X_train
+    para evitar fuga de datos (data leakage) y errores de precisión numérica.
+    """
+    media = np.mean(X_train, axis=0, dtype=np.float64).astype(np.float32)
+    desv = np.std(X_train, axis=0, dtype=np.float64).astype(np.float32)
+    # Proteger contra columnas constantes (evita división por cero)
+    desv[desv < 1e-8] = 1.0
+
+    X_train_norm = np.ascontiguousarray((X_train - media) / desv, dtype=np.float32)
+    X_test_norm = None
+    if X_test is not None:
+        X_test_norm = np.ascontiguousarray((X_test - media) / desv, dtype=np.float32)
+
+    return X_train_norm, X_test_norm, media, desv

@@ -120,3 +120,92 @@ def normalizar_zscore(
         X_test_norm = np.ascontiguousarray((X_test - media) / desv, dtype=np.float32)
 
     return X_train_norm, X_test_norm, media, desv
+
+
+def expandir_polinomio_grado2(X: np.ndarray) -> np.ndarray:
+    """
+    Genera características de grado 2 (cuadrados e interacciones x_i * x_j).
+    Por ejemplo, en SUSY pasa de 18 atributos a 189 atributos, aumentando
+    tanto la capacidad predictiva lineal como la intensidad aritmética.
+    Preasigna la matriz en float32 para evitar picos innecesarios de RAM.
+    """
+    n_filas, n_cols = X.shape
+    n_interacciones = (n_cols * (n_cols + 1)) // 2
+    n_total = n_cols + n_interacciones
+
+    X_poly = np.empty((n_filas, n_total), dtype=np.float32)
+    X_poly[:, :n_cols] = X
+
+    col_actual = n_cols
+    for i in range(n_cols):
+        xi = X[:, i : i + 1]
+        n_bloque = n_cols - i
+        np.multiply(xi, X[:, i:], out=X_poly[:, col_actual : col_actual + n_bloque])
+        col_actual += n_bloque
+
+    return X_poly
+
+
+def agregar_bias(X: np.ndarray) -> np.ndarray:
+    """
+    Inserta una columna de unos al inicio de X para representar el término
+    independiente (intercepto / bias) sin necesidad de normalizarlo.
+    """
+    unos = np.ones((X.shape[0], 1), dtype=np.float32)
+    return np.ascontiguousarray(np.hstack((unos, X)), dtype=np.float32)
+
+
+def preparar_pipeline_datos(
+    ruta_csv: str | None = None,
+    max_filas: int | None = None,
+    n_sintetico: int = 1_000_000,
+    n_features_sintetico: int = 18,
+    usar_polinomio: bool = True,
+    test_size: float = 0.2,
+    col_objetivo: int | str = 0,
+    tiene_encabezado: bool = False,
+    semilla: int = 42,
+) -> dict:
+    """
+    Orquesta el preprocesamiento completo de extremo a extremo:
+    1. Carga (CSV real o sintético)
+    2. Split estratificado 80/20
+    3. Expansión polinómica grado 2 (opcional)
+    4. Normalización Z-Score ajustada solo en entrenamiento
+    5. Adición de columna de bias
+    """
+    if ruta_csv:
+        X, y = cargar_dataset_csv(
+            ruta_csv=ruta_csv,
+            max_filas=max_filas,
+            col_objetivo=col_objetivo,
+            tiene_encabezado=tiene_encabezado,
+        )
+    else:
+        X, y = generar_dataset_sintetico(
+            n_muestras=n_sintetico,
+            n_caracteristicas=n_features_sintetico,
+            semilla=semilla,
+        )
+
+    X_train, X_test, y_train, y_test = dividir_train_test_estratificado(
+        X, y, test_size=test_size, semilla=semilla
+    )
+
+    if usar_polinomio:
+        X_train = expandir_polinomio_grado2(X_train)
+        X_test = expandir_polinomio_grado2(X_test)
+
+    X_train, X_test, media, desv = normalizar_zscore(X_train, X_test)
+
+    X_train = agregar_bias(X_train)
+    X_test = agregar_bias(X_test)
+
+    return {
+        "X_train": X_train,
+        "X_test": X_test,
+        "y_train": y_train,
+        "y_test": y_test,
+        "media": media,
+        "desv": desv,
+    }

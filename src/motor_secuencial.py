@@ -1,5 +1,6 @@
 import numpy as np
 from src import fijar_un_hilo_blas
+from MultMatricesSec import multiplicacion_secuencial
 
 fijar_un_hilo_blas()
 
@@ -12,7 +13,7 @@ def sigmoide_estable(z: np.ndarray) -> np.ndarray:
 
 class MotorSecuencial:
     """
-    Esto coso corre con solo un núcleo, es decir que funciona de fomra secuenial
+    Esto coso corre con solo un núcleo, es decir que funciona de forma secuencial.
     Recorre X por bloques de filas para optimizar la localidad en caché.
     """
 
@@ -28,6 +29,9 @@ class MotorSecuencial:
         l2: float = 1e-4,
     ) -> tuple[np.ndarray, float]:
         w = np.ascontiguousarray(pesos, dtype=np.float32)
+        # Convertimos w (1D) a matriz columna 2D (n_cols x 1) para multiplicacion_secuencial
+        w_col = w.reshape(-1, 1).tolist()
+
         grad_acum = np.zeros(self.n_cols, dtype=np.float64)
         loss_acum = 0.0
         eps = 1e-7
@@ -37,11 +41,18 @@ class MotorSecuencial:
             X_b = self.X[inicio:fin]
             y_b = self.y[inicio:fin]
 
-            z = X_b @ w
+            # z = X_b @ w pero usando nuestra función
+            z_col = multiplicacion_secuencial(X_b.tolist(), w_col)
+            z = np.array([fila[0] for fila in z_col], dtype=np.float32)
+
             p = sigmoide_estable(z)
             error = p - y_b
 
-            grad_acum += (X_b.T @ error).astype(np.float64)
+            # grad_acum += (X_b.T @ error).astype(np.float64) pero usando nuestra función
+            error_col = error.reshape(-1, 1).tolist()
+            grad_b_col = multiplicacion_secuencial(X_b.T.tolist(), error_col)
+            grad_acum += np.array([fila[0] for fila in grad_b_col], dtype=np.float64)
+
             p_safe = np.clip(p, eps, 1.0 - eps)
             loss_acum -= float(
                 np.sum(

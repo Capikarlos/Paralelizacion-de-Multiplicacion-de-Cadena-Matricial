@@ -1,5 +1,4 @@
 import atexit
-import math
 import multiprocessing as mp
 import numpy as np
 
@@ -33,50 +32,75 @@ def _inicializar_worker(meta_X: dict, meta_y: dict) -> None:
     atexit.register(_cerrar_handles_worker)
 
 
-def _worker_gradiente_bloque(args: tuple) -> tuple[np.ndarray, float]:
-    pesos, inicio, fin = args
-    X_seg = _X_VISTA[inicio:fin]
-    y_seg = _Y_VISTA[inicio:fin]
+def calcular_rangos_balanceados(n_filas: int, num_partes: int) -> list[tuple[int, int]]:
+    """Reparte las filas con diferencia máxima de 1 fila entre núcleos."""
+    base, residuo = divmod(n_filas, num_partes)
+    rangos = []
+    inicio = 0
+    for idx in range(num_partes):
+        tam = base + (1 if idx < residuo else 0)
+        if tam > 0:
+            rangos.append((inicio, inicio + tam))
+        inicio += tam
+    return rangos
 
-    z = X_seg @ pesos
-    p = sigmoide_estable(z)
-    error = p - y_seg
 
-    grad_parcial = (X_seg.T @ error).astype(np.float64)
-    p_safe = np.clip(p, 1e-7, 1.0 - 1e-7)
-    loss_parcial = -float(
-        np.sum(
-            y_seg * np.log(p_safe) + (1.0 - y_seg) * np.log(1.0 - p_safe),
-            dtype=np.float64,
+def _worker_gradiente_optimizado(args: tuple) -> tuple[np.ndarray, float]:
+    """Procesa su partición en micro-lotes amigables con caché L2/L3."""
+    pesos, inicio, fin, tam_sublote = args
+    n_cols = _X_VISTA.shape[1]
+    grad_local = np.zeros(n_cols, dtype=np.float64)
+    loss_local = 0.0
+    eps = 1e-7
+
+    for pos in range(inicio, fin, tam_sublote):
+        limite = min(pos + tam_sublote, fin)
+        X_b = _X_VISTA[pos:limite]
+        y_b = _Y_VISTA[pos:limite]
+
+        z = X_b @ pesos
+        p = sigmoide_estable(z)
+        error = p - y_b
+
+        grad_local += (X_b.T @ error).astype(np.float64)
+        p_safe = np.clip(p, eps, 1.0 - eps)
+        loss_local -= float(
+            np.sum(
+                y_b * np.log(p_safe) + (1.0 - y_b) * np.log(1.0 - p_safe),
+                dtype=np.float64,
+            )
         )
-    )
-    return grad_parcial, loss_parcial
+
+    return grad_local, loss_local
 
 
 class MotorParaleloSHM:
     """
-    Motor multinúcleo Zero-Copy (no crea copias del dataset, todo apunta a la misma dirección de memoria
-    para que tarde menos y la memoria no colapse) con multiprocessing.shared_memory.
-    Mantiene un Pool persistente para eliminar pickling de X e y en cada época.
+    Motor multinúcleo ahora más molón:
+    - Zero-Copy (no crea copias del dataset, todo apunta a la misma dirección de memoria
+      para que tarde menos y la memoria no colapse) con multiprocessing.shared_memory.
+    - Particionado balanceado + micro-lotes locales para minimizar perdida de memoria cache.
     """
 
-    def __init__(self, X: np.ndarray, y: np.ndarray, num_procesos: int | None = None):
+    def __init__(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        num_procesos: int | None = None,
+        tam_sublote: int = 32_768,
+    ):
         fijar_un_hilo_blas()
         self.n_muestras, self.n_cols = X.shape
         self.num_procesos = num_procesos or mp.cpu_count()
+        self.tam_sublote = tam_sublote
 
         self.gestor = GestorMemoriaCompartida()
         meta_X = self.gestor.registrar_arreglo("X", X)
         meta_y = self.gestor.registrar_arreglo("y", y)
 
-        filas_por_worker = math.ceil(self.n_muestras / self.num_procesos)
-        self.rangos = [
-            (i, min(i + filas_por_worker, self.n_muestras))
-            for i in range(0, self.n_muestras, filas_por_worker)
-        ]
-
+        self.rangos = calcular_rangos_balanceados(self.n_muestras, self.num_procesos)
         self.pool = mp.Pool(
-            processes=self.num_procesos,
+            processes=len(self.rangos),
             initializer=_inicializar_worker,
             initargs=(meta_X, meta_y),
         )
@@ -87,8 +111,11 @@ class MotorParaleloSHM:
         l2: float = 1e-4,
     ) -> tuple[np.ndarray, float]:
         w = np.ascontiguousarray(pesos, dtype=np.float32)
-        tareas = [(w, inicio, fin) for inicio, fin in self.rangos]
-        resultados = self.pool.map(_worker_gradiente_bloque, tareas)
+        tareas = [
+            (w, inicio, fin, self.tam_sublote)
+            for inicio, fin in self.rangos
+        ]
+        resultados = self.pool.map(_worker_gradiente_optimizado, tareas, chunksize=1)
 
         grad_acum = np.zeros(self.n_cols, dtype=np.float64)
         loss_acum = 0.0

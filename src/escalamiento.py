@@ -80,3 +80,81 @@ def benchmark_escalamiento_fuerte(
         )
 
     return resultados
+
+def benchmark_escalamiento_debil(
+    X: np.ndarray,
+    y: np.ndarray,
+    filas_base: int = 150_000,
+    epocas: int = 15,
+    lista_nucleos: list[int] | None = None,
+    tam_sublote: int = 32_768,
+) -> list[dict]:
+    """
+    Escalamiento Débil (Ley de Gustafson):
+    Aumenta el volumen de datos proporcionalmente a los núcleos (N = p * filas_base)
+    usando MotorParaleloSHM para medir estabilidad de tiempo y speedup escalado.
+    """
+    nucleos = lista_nucleos or generar_lista_nucleos()
+    n_cols = X.shape[1]
+    resultados = []
+    t_base = None
+
+    for p in nucleos:
+        n_actual = p * filas_base
+        if n_actual > X.shape[0]:
+            break
+
+        X_sub = X[:n_actual]
+        y_sub = y[:n_actual]
+
+        if p == 1:
+            with MotorSecuencial(X_sub, y_sub, tam_lote=tam_sublote) as motor:
+                t_p = _medir_motor(motor, n_cols, epocas)
+            t_base = t_p
+        else:
+            with MotorParaleloSHM(
+                X_sub, y_sub, num_procesos=p, tam_sublote=tam_sublote
+            ) as motor:
+                t_p = _medir_motor(motor, n_cols, epocas)
+
+        eficiencia_debil = t_base / t_p if t_base else 1.0
+        resultados.append(
+            {
+                "nucleos": p,
+                "filas": n_actual,
+                "tiempo": t_p,
+                "speedup_gustafson": p * eficiencia_debil,
+                "eficiencia_debil": eficiencia_debil,
+            }
+        )
+
+    return resultados
+
+
+def verificar_equivalencia_motores(
+    X: np.ndarray,
+    y: np.ndarray,
+    num_procesos: int = 4,
+    tolerancia: float = 1e-4,
+) -> float:
+    """
+    Comprueba matemáticamente que MotorSecuencial y MotorParaleloSHM producen
+    el mismo gradiente dentro de una tolerancia numérica para asegurar que los
+    resultados sean similares o iguales.
+    """
+    rng = np.random.default_rng(42)
+    w = rng.standard_normal(X.shape[1]).astype(np.float32) * 0.1
+
+    with MotorSecuencial(X, y) as m_seq:
+        g_seq, l_seq = m_seq.calcular_gradiente_y_costo(w)
+
+    with MotorParaleloSHM(X, y, num_procesos=num_procesos) as m_par:
+        g_par, l_par = m_par.calcular_gradiente_y_costo(w)
+
+    diff_grad = float(np.max(np.abs(g_seq - g_par)))
+    diff_loss = abs(l_seq - l_par)
+    if diff_grad > tolerancia or diff_loss > tolerancia:
+        raise AssertionError(
+            f"Discrepancia entre motores: diff_grad={diff_grad:.2e}, diff_loss={diff_loss:.2e}"
+        )
+    return diff_grad

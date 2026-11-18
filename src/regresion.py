@@ -1,96 +1,84 @@
-import math
+
 import time
-from .paralelo import multiplicacion_paralela_bloques
-from .MultMatricesSec import multiplicacion_secuencial
+import numpy as np
 
-def transponer_matriz(matriz):
-    #Transpone una matriz intercambiando filas por columnas
-    return [
-        [matriz[j][i] for j in range(len(matriz))]
-        for i in range(len(matriz[0]))
-    ]
+from src.motor_secuencial import MotorSecuencial, sigmoide_estable
+from src.motor_paralelo import MotorParaleloSHM
 
-def sigmoide(z):
-    #Calcula la funcion sig para convertir el valor a una probabilidad d 0 o 1
-    if z < -250:
-        return 0.0
-    if z > 250:
-        return 1.0
-    return 1.0 / (1.0 + math.exp(-z))
+class RegresionLogisticaParalela:
 
-def entrenar_regresion_logistica(X, y, epochs=5, lr=0.001, paralelo=False, num_procesos=4):
-    # Asegurar que trabajamos con listas nativas (por si el dataset.py manda numpy arrays por la caché)
-    if hasattr(X, "tolist"): X = X.tolist()
-    if hasattr(y, "tolist"): y = y.tolist()
+    def __init__(
+        self,
+        tasa_aprendizaje: float = 0.1,
+        epocas: int = 40,
+        l2: float = 1e-4,
+        momentum: float = 0.9,
+        modo: str = "paralelo_shm",
+        num_workers: int | None = None,
+        tam_sublote: int = 32_768,
+    ):
+        self.lr = tasa_aprendizaje
+        self.epocas = epocas
+        self.l2 = l2
+        self.momentum = momentum
+        self.modo = modo
+        self.num_workers = num_workers
+        self.tam_sublote = tam_sublote
 
-    num_muestras = len(X)
-    num_caracteristicas = len(X[0])
+        self.pesos: np.ndarray | None = None
+        self.historial_loss: list[float] = []
+        self.tiempo_entrenamiento: float = 0.0
 
-    #Asegurar que 'y' sea una matriz columna de tipo [[y1], [y2], ...]
-    if not isinstance(y[0], list):
-        y = [[val] for val in y]
+    def _crear_motor(self, X: np.ndarray, y: np.ndarray):
+        if self.modo == "secuencial":
+            return MotorSecuencial(X, y, tam_lote=self.tam_sublote,)
 
-    #Inicializar los pesos en cero
-    pesos = [[0.0] for _ in range(num_caracteristicas)]
+        if self.modo == "paralelo_shm":
+            return MotorParaleloSHM(X, y, num_procesos=self.num_workers, tam_sublote=self.tam_sublote,)
 
-    print("\n[INFO] Preparando datos: calculando la matriz transpuesta...")
-    inicio_transpuesta = time.time()
-    
-    #OPTIMIZACION: Transponer X una sola vez antes de empezar las epocas
-    X_T = transponer_matriz(X)
-    
-    print(f"[INFO] Matriz transpuesta lista en {time.time() - inicio_transpuesta:.2f} segundos.")
-    
-    tipo_ejecucion = "PARALELO" if paralelo else "SECUENCIAL"
-    print(f"\n[INFO] Iniciando entrenamiento {tipo_ejecucion} por {epochs} epocas...")
+        raise ValueError(f"Modo no soportado: '{self.modo}'. ""Usa 'secuencial' o 'paralelo_shm'.")
 
-    #Entrenar durante el num de epocas indicado
-    for epoca in range(epochs):
-        inicio_epoca = time.time()
-        print(f"  -> Iniciando Epoca {epoca + 1}/{epochs}...")
-        
-        #Calcular X * pesos
-        if paralelo: 
-            z = multiplicacion_paralela_bloques(X, pesos, num_procesos=num_procesos)
-        else:
-            z = multiplicacion_secuencial(X, pesos)
+    def entrenar(self, X: np.ndarray, y: np.ndarray,verbose: bool = True,) -> "RegresionLogisticaParalela":
 
-        #Convertir los resultados en probabilidades
-        h = [[sigmoide(val[0])] for val in z]
+        n_cols = X.shape[1]
+        self.pesos = np.zeros(n_cols, dtype=np.float32)
+        velocidad = np.zeros(n_cols, dtype=np.float32)
+        self.historial_loss = []
 
-        #Calcular el error entre las predicciones y las etiquetas
-        error = [[h[i][0] - y[i][0]] for i in range(num_muestras)]
+        with self._crear_motor(X, y) as motor:
+            t_inicio = time.perf_counter()
 
-        #Calcular X^T * error (usando la transpuesta ya calculada)
-        if paralelo:
-            gradiente_bruto = multiplicacion_paralela_bloques(X_T, error, num_procesos=num_procesos)
-        else:
-            gradiente_bruto = multiplicacion_secuencial(X_T, error)
+            for epoca in range(1, self.epocas + 1):
+                grad, loss = motor.calcular_gradiente_y_costo(self.pesos,l2=self.l2,)
 
-        #Actualizar los pesos usando el gradiente promedio
-        for i in range(num_caracteristicas):
-            gradiente_promedio = (gradiente_bruto[i][0] / num_muestras)
-            pesos[i][0] -= lr * gradiente_promedio
-            
-        tiempo_epoca = time.time() - inicio_epoca
-        print(f"     [OK] Epoca {epoca + 1} completada en {tiempo_epoca:.2f} segundos.")
+                velocidad = self.momentum * velocidad + grad
+                self.pesos -= self.lr * velocidad
+                self.historial_loss.append(loss)
 
-    return pesos
+                if verbose and (epoca == 1 or epoca % 10 == 0 or epoca == self.epocas):
+                    print(f"  [{self.modo}] Época {epoca:03d}/{self.epocas} " f"| Log-Loss: {loss:.5f}")
 
-def predecir(X, pesos):
-    #Predice la clase de cada instancia usando los pesos obtenidos y retorna las predicciones
-    if hasattr(X, "tolist"): X = X.tolist()
-    
-    print("\n[INFO] Generando predicciones finales")
-    
-    #Calcular X * pesos
-    z = multiplicacion_secuencial(X, pesos)
+            self.tiempo_entrenamiento = time.perf_counter() - t_inicio
 
-    predicciones = []
-    #Convertir las probabilidades en clases
-    for val in z:
-        probabilidad = sigmoide(val[0])
-        clase = 1 if probabilidad >= 0.5 else 0
-        predicciones.append([clase])
+        return self
 
-    return predicciones
+    def predecir_probabilidades(self, X: np.ndarray, tam_lote: int = 65_536,) -> np.ndarray:
+
+        if self.pesos is None:
+            raise RuntimeError("El modelo debe entrenarse antes de predecir.")
+
+        n_filas = X.shape[0]
+        probs = np.empty(n_filas, dtype=np.float32)
+
+        for inicio in range(0, n_filas, tam_lote):
+            fin = min(inicio + tam_lote, n_filas)
+            probs[inicio:fin] = sigmoide_estable(
+                X[inicio:fin] @ self.pesos
+            )
+
+        return probs
+
+    def predecir(self, X: np.ndarray, umbral: float = 0.5,) -> np.ndarray:
+
+        probs = self.predecir_probabilidades(X)
+        return (probs >= umbral).astype(np.int8)

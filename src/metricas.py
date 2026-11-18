@@ -1,67 +1,122 @@
-# src/metricas.py
-
-def calcular_speedup(t_secuencial, t_paralelo):
-    # Relación entre el tiempo de ejecución de un solo procesador y múltiples procesadores
-    if t_paralelo == 0:
-        return 0
-    return t_secuencial / t_paralelo
+import numpy as np
 
 
-def calcular_eficiencia(speedup, num_procesos):
-    # Porcentaje de utilización real de los núcleos asignados
-    if num_procesos == 0:
-        return 0
-    return speedup / num_procesos
+def calcular_matriz_confusion(y_true: np.ndarray, y_pred: np.ndarray,) -> dict[str, int]:
+    # Calcula TP, TN, FP y FN para clasificación binaria.
+    yt = np.asarray(y_true, dtype=np.int8)
+    yp = np.asarray(y_pred, dtype=np.int8)
+
+    tp = int(np.sum((yt == 1) & (yp == 1)))
+    tn = int(np.sum((yt == 0) & (yp == 0)))
+    fp = int(np.sum((yt == 0) & (yp == 1)))
+    fn = int(np.sum((yt == 1) & (yp == 0)))
+    return {"TP": tp, "TN": tn, "FP": fp, "FN": fn}
 
 
-def metricas_clasificacion(y_real, y_pred):
-    # Inicialización de la matriz de confusión
-    vp = 0  # Verdaderos Positivos
-    vn = 0  # Verdaderos Negativos
-    fp = 0  # Falsos Positivos
-    fn = 0  # Falsos Negativos
+def calcular_roc_auc(y_true: np.ndarray, y_prob: np.ndarray) -> float:
+    # Calcula el área bajo la curva ROC (ROC-AUC) de forma exacta en NumPy puro manejando empates de probabilidad y usando integración trapezoidal.
+    yt = np.asarray(y_true, dtype=np.int8)
+    yp = np.asarray(y_prob, dtype=np.float64)
 
-    for real, pred in zip(y_real, y_pred):
-        # Manejo de listas anidadas por si los datos vienen como [[1], [0]]
-        val_real = real[0] if isinstance(real, list) else real
-        val_pred = pred[0] if isinstance(pred, list) else pred
+    n_pos = int(np.sum(yt == 1))
+    n_neg = int(np.sum(yt == 0))
+    if n_pos == 0 or n_neg == 0:
+        return 0.0
 
-        if val_real == 1 and val_pred == 1:
-            vp += 1
-        elif val_real == 0 and val_pred == 0:
-            vn += 1
-        elif val_real == 0 and val_pred == 1:
-            fp += 1
-        elif val_real == 1 and val_pred == 0:
-            fn += 1
+    orden = np.argsort(-yp, kind="mergesort")
+    y_ord = yt[orden]
+    prob_ord = yp[orden]
 
-    total = len(y_real)
-    
-    # Cálculo de métricas manejando divisiones por cero
-    exactitud = (vp + vn) / total if total > 0 else 0
-    precision = vp / (vp + fp) if (vp + fp) > 0 else 0
-    recall = vp / (vp + fn) if (vp + fn) > 0 else 0
-    
-    f1 = 0
-    if (precision + recall) > 0:
-        f1 = 2 * (precision * recall) / (precision + recall)
+    cambios = np.where(np.diff(prob_ord))[0]
+    indices_umbral = np.r_[cambios, y_ord.size - 1]
 
-    return exactitud, precision, recall, f1
+    tps = np.cumsum(y_ord, dtype=np.float64)[indices_umbral]
+    fps = (indices_umbral + 1).astype(np.float64) - tps
+
+    tpr = np.r_[0.0, tps / n_pos]
+    fpr = np.r_[0.0, fps / n_neg]
+
+    return float(np.sum((fpr[1:] - fpr[:-1]) * (tpr[1:] + tpr[:-1]) * 0.5))
 
 
-def imprimir_reporte_tiempos(t_sec, t_par, num_procesos):
-    speedup = calcular_speedup(t_sec, t_par)
-    eficiencia = calcular_eficiencia(speedup, num_procesos)
-    print(f"Tiempo Secuencial: {t_sec:.4f} s")
-    print(f"Tiempo Paralelo: {t_par:.4f} s")
-    print(f"Speedup: {speedup:.2f}")
-    print(f"Eficiencia: {eficiencia:.4f}\n")
+def evaluar_clasificacion(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    umbral: float = 0.5,
+) -> dict:
+    # Devuelve Accuracy, Precision, Recall, F1, Log-Loss, ROC-AUC y matriz
+    yt = np.asarray(y_true, dtype=np.float64)
+    yp_prob = np.asarray(y_prob, dtype=np.float64)
+    y_pred = (yp_prob >= umbral).astype(np.int8)
+
+    mc = calcular_matriz_confusion(yt, y_pred)
+    tp, tn, fp, fn = mc["TP"], mc["TN"], mc["FP"], mc["FN"]
+    total = tp + tn + fp + fn
+
+    accuracy = (tp + tn) / total if total > 0 else 0.0
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = (
+        2.0 * precision * recall / (precision + recall)
+        if (precision + recall) > 0
+        else 0.0
+    )
+
+    p_safe = np.clip(yp_prob, 1e-7, 1.0 - 1e-7)
+    log_loss = -float(np.mean(yt * np.log(p_safe) + (1.0 - yt) * np.log(1.0 - p_safe)))
+    roc_auc = calcular_roc_auc(yt, yp_prob)
+
+    return {
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1_score": f1,
+        "roc_auc": roc_auc,
+        "log_loss": log_loss,
+        "matriz_confusion": mc,
+    }
 
 
-def imprimir_reporte_modelo(y_real, y_pred):
-    exactitud, precision, recall, f1 = metricas_clasificacion(y_real, y_pred)
-    print("\nEvaluación")
-    print(f"Exactitud: {exactitud:.4f}")
-    print(f"Precisión: {precision:.4f}")
-    print(f"Recall : {recall:.4f}")
-    print(f"F1-Score: {f1:.4f}")
+def calcular_metricas_hpc(tiempo_secuencial: float, tiempo_paralelo: float, num_nucleos: int,) -> dict[str, float]:
+    #Calcula Speedup (S), Eficiencia (E) y porcentaje de reducción de tiempo
+    speedup = tiempo_secuencial / tiempo_paralelo if tiempo_paralelo > 0 else 0.0
+    eficiencia = speedup / num_nucleos if num_nucleos > 0 else 0.0
+    reduccion_pct = ((1.0 - (tiempo_paralelo / tiempo_secuencial)) * 100.0
+        if tiempo_secuencial > 0
+        else 0.0)
+    return {
+        "tiempo_secuencial": tiempo_secuencial,
+        "tiempo_paralelo": tiempo_paralelo,
+        "nucleos": num_nucleos,
+        "speedup": speedup,
+        "eficiencia": eficiencia,
+        "reduccion_tiempo_pct": reduccion_pct,
+    }
+
+
+def imprimir_reporte_metricas(metricas_ml: dict, metricas_hpc: dict | None = None) -> None:
+    #Muestra en consola un resumen limpio listo para reportes o diapositivas.
+    mc = metricas_ml["matriz_confusion"]
+    print("\n MÉTRICAS DE CLASIFICACIÓN ")
+    print(f"  Exactitud (Accuracy) : {metricas_ml['accuracy'] * 100:6.2f}%")
+    print(f"  Precisión            : {metricas_ml['precision'] * 100:6.2f}%")
+    print(f"  Recall               : {metricas_ml['recall'] * 100:6.2f}%")
+    print(f"  F1-Score             : {metricas_ml['f1_score'] * 100:6.2f}%")
+    print(f"  ROC-AUC              : {metricas_ml['roc_auc']:.4f}")
+    print(f"  Log-Loss             : {metricas_ml['log_loss']:.4f}")
+    print(
+        f"  Matriz de Confusión  : TP={mc['TP']} | FP={mc['FP']} | "
+        f"TN={mc['TN']} | FN={mc['FN']}"
+    )
+
+    if metricas_hpc is not None:
+        print("\n MÉTRICAS DE CÓMPUTO PARALELO")
+        print(f"  Tiempo Secuencial    : {metricas_hpc['tiempo_secuencial']:.3f} s")
+        print(
+            f"  Tiempo Paralelo ({metricas_hpc['nucleos']}c) : "
+            f"{metricas_hpc['tiempo_paralelo']:.3f} s"
+        )
+        print(f"  Speedup (S)          : {metricas_hpc['speedup']:.2f}x")
+        print(f"  Eficiencia (E)       : {metricas_hpc['eficiencia'] * 100:.2f}%")
+        print(f"  Reducción de tiempo  : {metricas_hpc['reduccion_tiempo_pct']:.2f}%")
+    print("---------------\n")

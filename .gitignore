@@ -4,6 +4,8 @@ data/YearPredictionMSD.txt
 
 #Archivos binarios generados por el procesamiento
 data/*.npy
+data/*.gz
+data/*.csv
 
 #Archivos generados por Python
 __pycache__/
@@ -12,3 +14,6 @@ __pycache__/
 #Entornos virtuales
 .venv/
 venv/
+
+#Resultados
+/resultados

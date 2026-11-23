@@ -10,8 +10,11 @@ def _asegurar_directorio(ruta_dir: str) -> None:
     os.makedirs(ruta_dir, exist_ok=True)
 
 
-def graficar_escalamiento_fuerte(resultados: list[dict],ruta_salida: str = "resultados/escalamiento_fuerte_amdahl.png",) -> None:
-    # Genera gráfica doble de Speedup y Eficiencia vs número de núcleos
+def graficar_escalamiento_fuerte(
+    resultados: list[dict],
+    ruta_salida: str = "resultados/escalamiento_fuerte_amdahl.png",
+) -> None:
+    """Genera gráfica doble de Speedup y Eficiencia vs número de núcleos."""
     _asegurar_directorio(os.path.dirname(ruta_salida))
 
     seq = next(r for r in resultados if r["modo"] == "secuencial")
@@ -19,37 +22,23 @@ def graficar_escalamiento_fuerte(resultados: list[dict],ruta_salida: str = "resu
         [r for r in resultados if r["modo"] == "paralelo_shm"],
         key=lambda x: x["nucleos"],
     )
-    hilos = sorted(
-        [r for r in resultados if r["modo"] == "paralelo_hilos"],
-        key=lambda x: x["nucleos"],
-    )
 
     nucleos_shm = [1] + [r["nucleos"] for r in shm]
     speedup_shm = [1.0] + [r["speedup"] for r in shm]
     efic_shm = [100.0] + [r["eficiencia"] * 100.0 for r in shm]
 
-    nucleos_h = [1] + [r["nucleos"] for r in hilos]
-    speedup_h = [1.0] + [r["speedup"] for r in hilos]
-    efic_h = [100.0] + [r["eficiencia"] * 100.0 for r in hilos]
-
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), dpi=150)
 
-    # 1 -Speedup
     ax1.plot(nucleos_shm, nucleos_shm, "--", color="gray", label="Speedup Ideal (S = P)")
-    ax1.plot(nucleos_shm, speedup_shm, "o-", linewidth=2, label="Multiprocessing SHM (Zero-Copy)")
-    if hilos:
-        ax1.plot(nucleos_h, speedup_h, "s-", linewidth=2, label="ThreadPool (Sin GIL en BLAS)")
+    ax1.plot(nucleos_shm, speedup_shm, "o-", linewidth=2, color="#1f77b4", label="Multiprocessing SHM (Zero-Copy)")
     ax1.set_title(f"Escalamiento Fuerte — Ley de Amdahl\n(Base secuencial: {seq['tiempo']:.2f} s)")
     ax1.set_xlabel("Número de núcleos (P)")
     ax1.set_ylabel("Speedup (S)")
     ax1.grid(True, alpha=0.3)
     ax1.legend()
 
-    # 2 - Eficiencia
     ax2.axhline(100.0, linestyle="--", color="gray", label="Eficiencia Ideal (100%)")
-    ax2.plot(nucleos_shm, efic_shm, "o-", linewidth=2, label="Multiprocessing SHM")
-    if hilos:
-        ax2.plot(nucleos_h, efic_h, "s-", linewidth=2, label="ThreadPool")
+    ax2.plot(nucleos_shm, efic_shm, "o-", linewidth=2, color="#ff7f0e", label="Multiprocessing SHM")
     ax2.set_title("Eficiencia Paralela por Núcleo")
     ax2.set_xlabel("Número de núcleos (P)")
     ax2.set_ylabel("Eficiencia (%)")

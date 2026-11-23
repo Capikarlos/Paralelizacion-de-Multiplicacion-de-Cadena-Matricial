@@ -1,6 +1,6 @@
 import numpy as np
 from src import fijar_un_hilo_blas
-from MultMatricesSec import multiplicacion_secuencial
+from src.MultMatricesSec import multiplicacion_secuencial
 
 fijar_un_hilo_blas()
 

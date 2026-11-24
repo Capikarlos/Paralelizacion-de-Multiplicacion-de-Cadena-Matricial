@@ -28,3 +28,9 @@ El proyecto propone mitigar este problema mediante la transición de un paradigm
 
 ## Resultados Esperados
 Se espera comprobar empíricamente que la paralelización de operaciones algebraicas reduce drásticamente el tiempo total de ejecución. El proyecto busca lograr una aceleración notable frente a la versión secuencial, validando la viabilidad del cómputo paralelo como una herramienta indispensable para optimizar algoritmos de aprendizaje computacional.
+
+## Sobre los datasets
+Debido a que los datasets empleados son demasiado pesados y como no son de nuestra autoría, es necesario descargarlos a parte. Links de descarga de los datasets:
+
+1.⁠ ⁠Susy: https://archive.ics.uci.edu/dataset/279/susy
+2.⁠ ⁠Predicting Credit Card Fraud: https://www.kaggle.com/competitions/playground-series-s6e11/data
